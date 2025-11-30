@@ -1,9 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
 
-// ==========================================
-// ENABLE ERROR LOGGING FOR REPORTS
-// ==========================================
 error_log("=== REPORTS.PHP REQUEST START ===");
 error_log("Method: " . $_SERVER['REQUEST_METHOD']);
 error_log("Time: " . date('Y-m-d H:i:s'));
@@ -81,27 +78,42 @@ function handleGetReports($conn) {
     $params = [];
     $types = "";
     
+    // Filter by department
     if (isset($_GET['department']) && $_GET['department'] !== 'All') {
         $sql .= " AND r.department = ?";
         $params[] = $_GET['department'];
         $types .= "s";
     }
     
+    // Filter by status
     if (isset($_GET['status'])) {
         $sql .= " AND r.status = ?";
         $params[] = $_GET['status'];
         $types .= "s";
     }
     
+    // Filter by severity
     if (isset($_GET['severity'])) {
         $sql .= " AND r.severity = ?";
         $params[] = $_GET['severity'];
         $types .= "s";
     }
     
+    // Search functionality
+    if (isset($_GET['search']) && !empty($_GET['search'])) {
+        $searchTerm = '%' . $_GET['search'] . '%';
+        $sql .= " AND (r.report_id LIKE ? OR r.title LIKE ? OR r.description LIKE ? OR r.type LIKE ?)";
+        $params[] = $searchTerm;
+        $params[] = $searchTerm;
+        $params[] = $searchTerm;
+        $params[] = $searchTerm;
+        $types .= "ssss";
+    }
+    
     $sql .= " ORDER BY r.created_at DESC";
     
     error_log("SQL query: " . $sql);
+    error_log("Params: " . print_r($params, true));
     
     $stmt = $conn->prepare($sql);
     
@@ -204,7 +216,11 @@ function handleCreateReport($conn, $data) {
     $department = $data['department'];
     $location = trim($data['location']);
     $type = $data['type'];
+    
+    // CRITICAL FIX: Handle anonymous flag properly
     $isAnonymous = isset($data['isAnonymous']) ? (int)$data['isAnonymous'] : 0;
+    error_log("Anonymous flag from request: " . ($isAnonymous ? 'YES' : 'NO'));
+    
     $hasAttachments = isset($data['hasAttachments']) ? (int)$data['hasAttachments'] : 0;
     $attachmentCount = isset($data['attachmentCount']) ? (int)$data['attachmentCount'] : 0;
     
@@ -218,7 +234,7 @@ function handleCreateReport($conn, $data) {
         location, reporter_id, reporter_name, is_anonymous,
         has_attachments, attachment_count, type,
         created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
+    ) VALUES (?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
     
     error_log("Preparing SQL insert...");
     
@@ -231,7 +247,7 @@ function handleCreateReport($conn, $data) {
     
     // 7. BIND PARAMETERS
     $stmt->bind_param(
-         "ssssssisiiss",
+        "ssssssisiiss",
         $reportId,
         $title,
         $description,
@@ -246,7 +262,7 @@ function handleCreateReport($conn, $data) {
         $type
     );
     
-    error_log("Parameters bound successfully");
+    error_log("Parameters bound successfully - is_anonymous = $isAnonymous");
     
     if (!$stmt->execute()) {
         error_log("ERROR: Failed to execute insert: " . $stmt->error);
@@ -256,10 +272,10 @@ function handleCreateReport($conn, $data) {
     // COMMIT THE REPORT IMMEDIATELY
     $conn->commit();
 
-    error_log("SUCCESS: Report inserted");
+    error_log("SUCCESS: Report inserted with is_anonymous = $isAnonymous");
     
     // ==========================================
-    // 9. RUN AUTO-FLAGGING ALGORITHM
+    // 8. RUN AUTO-FLAGGING ALGORITHM
     // ==========================================
     $reportData = [
         'title' => $title,
@@ -274,12 +290,7 @@ function handleCreateReport($conn, $data) {
     
     error_log("Auto-flagging result: " . print_r($flagResult, true));
     
-    // 10. LOG ACTIVITY
-    // 10. LOG ACTIVITY - DISABLED FOR NOW
-    // Activity logging skipped to avoid foreign key issues
-    error_log("Activity logging skipped");
-        
-    // 11. RETURN SUCCESS WITH FLAG INFO
+    // 9. RETURN SUCCESS WITH FLAG INFO
     error_log("=== CREATE REPORT SUCCESS ===");
     
     echo json_encode([
@@ -407,10 +418,6 @@ function autoFlagReport($conn, $reportData, $reportId) {
         $stmt->execute();
         
         error_log("Flag info saved to database");
-        
-        // Log flagging event - COMMENTED OUT
-        // logActivity($conn, 0, 'Report Flagged', 
-        //     "Report $reportId auto-flagged: $flagReason", 'System');
     }
     
     error_log("=== AUTO-FLAGGING ALGORITHM END ===");
@@ -451,6 +458,7 @@ function handleUpdateReport($conn, $data) {
         throw new Exception('Report ID is required');
     }
     
+    // Check if report exists using report_id (the varchar field)
     $checkSql = "SELECT * FROM reports WHERE report_id = ?";
     $stmt = $conn->prepare($checkSql);
     $stmt->bind_param("s", $data['id']);
@@ -458,6 +466,7 @@ function handleUpdateReport($conn, $data) {
     $result = $stmt->get_result();
     
     if ($result->num_rows === 0) {
+        error_log("Report not found: " . $data['id']);
         throw new Exception('Report not found');
     }
     
@@ -471,6 +480,8 @@ function handleUpdateReport($conn, $data) {
         $updates[] = "status = ?";
         $params[] = $data['status'];
         $types .= "s";
+        
+        error_log("Changing status from {$oldReport['status']} to {$data['status']}");
     }
     
     if (isset($data['severity'])) {
@@ -487,17 +498,33 @@ function handleUpdateReport($conn, $data) {
     $params[] = $data['id'];
     $types .= "s";
     
+    // Use report_id (varchar) in WHERE clause
     $sql = "UPDATE reports SET " . implode(", ", $updates) . " WHERE report_id = ?";
     
+    error_log("Update SQL: " . $sql);
+    error_log("Parameters: " . print_r($params, true));
+    
     $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        error_log("Failed to prepare statement: " . $conn->error);
+        throw new Exception('Database error: ' . $conn->error);
+    }
+    
     $stmt->bind_param($types, ...$params);
     
     if (!$stmt->execute()) {
+        error_log("Failed to execute update: " . $stmt->error);
         throw new Exception('Failed to update report: ' . $stmt->error);
     }
     
-    error_log("Report updated successfully");
+    if ($stmt->affected_rows === 0) {
+        error_log("No rows affected - report may not exist or status is the same");
+    } else {
+        error_log("Report updated successfully - {$stmt->affected_rows} row(s) affected");
+    }
     
+    // Log activity if status was changed
     if (isset($_SESSION['user_id']) && isset($data['status'])) {
         $userName = $_SESSION['name'] ?? 'System';
         logActivity($conn, $_SESSION['user_id'], 'Status Changed', 
@@ -506,7 +533,8 @@ function handleUpdateReport($conn, $data) {
     
     echo json_encode([
         'success' => true,
-        'message' => 'Report updated successfully'
+        'message' => 'Report updated successfully',
+        'affectedRows' => $stmt->affected_rows
     ]);
 }
 
@@ -544,6 +572,9 @@ function handleDeleteReport($conn, $data) {
 // HELPER FUNCTIONS
 // ==========================================
 function formatReportResponse($row) {
+    // CRITICAL FIX: Properly handle anonymous flag
+    $isAnonymous = isset($row['is_anonymous']) ? (bool)$row['is_anonymous'] : false;
+    
     return [
         'id' => $row['report_id'],
         'title' => $row['title'],
@@ -554,10 +585,10 @@ function formatReportResponse($row) {
         'department' => $row['department'],
         'location' => $row['location'],
         'submittedBy' => $row['reporter_id'],
-        'submittedByName' => $row['reporter_name'] ?? 'Anonymous',
+        'submittedByName' => $isAnonymous ? 'Anonymous' : ($row['reporter_name'] ?? 'Unknown'),
         'submittedAt' => $row['created_at'],
         'updatedAt' => $row['updated_at'],
-        'isAnonymous' => isset($row['is_anonymous']) ? (bool)$row['is_anonymous'] : false,
+        'isAnonymous' => $isAnonymous,
         'autoFlagged' => isset($row['auto_flagged']) ? (bool)$row['auto_flagged'] : false,
         'flagReason' => $row['flag_reason'] ?? null,
         'flagScore' => $row['flag_score'] ?? 0,

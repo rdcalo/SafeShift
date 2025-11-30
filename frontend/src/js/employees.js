@@ -1,14 +1,28 @@
 // ==========================================
-// EMPLOYEES PAGE JAVASCRIPT
+// EMPLOYEES PAGE JAVASCRIPT - FIXED VERSION
 // ==========================================
-// Add to employees.html: <script src="app.js"></script>
-// Add to employees.html: <script src="employees.js"></script>
+// Add to employees.html: <script src="js/app.js"></script>
+// Add to employees.html: <script src="js/employees.js"></script>
 
 (function() {
   let currentUser = null;
   let allEmployees = [];
   let filteredEmployees = [];
   let selectedDepartment = 'All Employees';
+  let searchQuery = '';
+
+  // Expose debug info for console testing
+  window.EmployeesPageDebug = {
+    getCurrentFilters: () => ({ selectedDepartment, searchQuery }),
+    getAllEmployees: () => allEmployees,
+    getFilteredEmployees: () => filteredEmployees,
+    getStats: () => ({
+      total: allEmployees.length,
+      filtered: filteredEmployees.length,
+      department: selectedDepartment,
+      searchActive: searchQuery !== ''
+    })
+  };
 
   document.addEventListener('DOMContentLoaded', async function() {
     currentUser = await window.SafeShift.Auth.init();
@@ -46,24 +60,64 @@
 
   async function loadAllEmployees(department = 'All Employees') {
     try {
-      allEmployees = await window.SafeShift.Employees.getAll();
+      console.log('Loading employees for department:', department);
       
+      // Fetch all employees from API
+      allEmployees = await window.SafeShift.Employees.getAll();
+      console.log('Fetched employees:', allEmployees);
+      
+      // Apply department filter
       if (department === 'All Employees') {
         filteredEmployees = allEmployees;
       } else {
         filteredEmployees = allEmployees.filter(e => e.department === department);
       }
 
+      // Apply search filter if there's a query
+      if (searchQuery) {
+        filteredEmployees = applySearchFilter(filteredEmployees, searchQuery);
+      }
+
+      console.log('Filtered employees:', filteredEmployees);
+      
       renderEmployees(filteredEmployees);
       updateDepartmentCounts();
     } catch (error) {
       console.error('Error loading employees:', error);
+      alert('Failed to load employees. Please check if the database is set up correctly.');
     }
+  }
+
+  function applySearchFilter(employees, query) {
+    const lowerQuery = query.toLowerCase().trim();
+    return employees.filter(emp => 
+      emp.name.toLowerCase().includes(lowerQuery) ||
+      emp.email.toLowerCase().includes(lowerQuery) ||
+      (emp.employeeId && emp.employeeId.toLowerCase().includes(lowerQuery)) ||
+      emp.role.toLowerCase().includes(lowerQuery)
+    );
   }
 
   function renderEmployees(employees) {
     const tbody = document.querySelector('#employeesTable tbody');
-    if (!tbody) return;
+    if (!tbody) {
+      console.error('Table body not found');
+      return;
+    }
+
+    // Show empty state if no employees
+    if (employees.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" style="text-align: center; padding: 40px; color: var(--text-grey);">
+            <i class="fa-solid fa-users" style="font-size: 3rem; margin-bottom: 15px; opacity: 0.3;"></i>
+            <p style="font-weight: 700; font-size: 1.1rem;">No employees found</p>
+            <p style="font-size: 0.9rem;">Try adjusting your filters or search query</p>
+          </td>
+        </tr>
+      `;
+      return;
+    }
 
     const colors = ['#64a6ff', '#feca57', '#ff6b6b', '#00cd78', '#a29bfe'];
 
@@ -122,7 +176,7 @@
       icon.addEventListener('click', async (e) => {
         e.stopPropagation();
         const empId = icon.dataset.empId;
-        await openReportDetailsModal(empId);
+        await viewEmployeeReports(empId);
       });
     });
   }
@@ -130,20 +184,33 @@
   function updateDepartmentCounts() {
     const filterButtons = document.querySelectorAll('.filter-btn');
     
+    console.log('Updating department counts...');
+    console.log('All employees:', allEmployees);
+    
     filterButtons.forEach(btn => {
       const btnText = btn.textContent.trim();
       
       if (btnText === 'All Employees') {
+        // Don't add count to "All Employees" button
         return;
       }
 
-      const deptName = btnText.split('\n')[0].trim();
+      // Extract department name (remove existing count badge if any)
+      const deptName = btnText.split(/\d+/)[0].trim();
+      
+      // Count employees in this department
       const count = allEmployees.filter(e => e.department === deptName).length;
       
-      const badge = btn.querySelector('.count-badge');
-      if (badge) {
-        badge.textContent = count;
+      console.log(`Department: ${deptName}, Count: ${count}`);
+      
+      // Update or create count badge
+      let badge = btn.querySelector('.count-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'count-badge';
+        btn.appendChild(badge);
       }
+      badge.textContent = count;
     });
   }
 
@@ -153,13 +220,30 @@
   function initializeFilters() {
     const filterButtons = document.querySelectorAll('.filter-btn');
     
+    console.log('Initializing filters, found buttons:', filterButtons.length);
+    
     filterButtons.forEach(btn => {
       btn.addEventListener('click', function() {
+        console.log('Filter button clicked:', this.textContent);
+        
+        // Remove active from all
         filterButtons.forEach(b => b.classList.remove('active'));
+        
+        // Add active to clicked
         this.classList.add('active');
         
+        // Get department name (remove count badge text)
         const btnText = this.textContent.trim();
-        const department = btnText === 'All Employees' ? 'All Employees' : btnText.split('\n')[0].trim();
+        let department;
+        
+        if (btnText === 'All Employees' || btnText.startsWith('All Employees')) {
+          department = 'All Employees';
+        } else {
+          // Extract department name (everything before the number)
+          department = btnText.split(/\d+/)[0].trim();
+        }
+        
+        console.log('Selected department:', department);
         
         selectedDepartment = department;
         loadAllEmployees(department);
@@ -174,23 +258,68 @@
     const searchInput = document.querySelector('.search-input');
     
     if (searchInput) {
+      console.log('Search input initialized');
+      
+      // Search on input (with debouncing)
+      let searchTimeout;
       searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase().trim();
+        clearTimeout(searchTimeout);
         
-        if (query === '') {
-          renderEmployees(filteredEmployees);
-          return;
-        }
-
-        const searchResults = filteredEmployees.filter(emp => 
-          emp.name.toLowerCase().includes(query) ||
-          emp.email.toLowerCase().includes(query) ||
-          emp.id.toLowerCase().includes(query) ||
-          emp.role.toLowerCase().includes(query)
-        );
-
-        renderEmployees(searchResults);
+        searchQuery = e.target.value.toLowerCase().trim();
+        console.log('Search query:', searchQuery);
+        
+        // Debounce search by 300ms
+        searchTimeout = setTimeout(() => {
+          if (searchQuery === '') {
+            // No search query, show all filtered employees
+            loadAllEmployees(selectedDepartment);
+          } else {
+            // Apply search filter to current filtered employees
+            const searchResults = applySearchFilter(
+              selectedDepartment === 'All Employees' 
+                ? allEmployees 
+                : allEmployees.filter(e => e.department === selectedDepartment),
+              searchQuery
+            );
+            
+            console.log('Search results:', searchResults);
+            renderEmployees(searchResults);
+          }
+        }, 300);
       });
+    } else {
+      console.error('Search input not found');
+    }
+  }
+
+  // ==========================================
+  // VIEW EMPLOYEE REPORTS
+  // ==========================================
+  async function viewEmployeeReports(empId) {
+    try {
+      const employee = await window.SafeShift.Employees.getById(empId);
+      const reports = await window.SafeShift.Reports.getAll();
+      const empReports = reports.filter(r => r.submittedBy === empId);
+      
+      if (!employee) {
+        alert('Employee not found');
+        return;
+      }
+
+      // Show most recent report from this employee
+      const latestReport = empReports[0];
+      
+      if (!latestReport) {
+        alert(`${employee.name} has not submitted any reports yet.\n\nTotal Reports: 0\nActive Reports: 0`);
+        return;
+      }
+
+      // Open report details modal with the latest report
+      await openReportDetailsModal(empId);
+      
+    } catch (error) {
+      console.error('Error viewing employee reports:', error);
+      alert('Failed to load employee reports');
     }
   }
 
@@ -322,12 +451,14 @@
       const empId = dropdownItem.dataset.empId;
 
       if (action === 'view') {
-        await openReportDetailsModal(empId);
+        await viewEmployeeReports(empId);
       } else if (action === 'edit') {
         alert('Edit functionality coming soon!');
       } else if (action === 'reset') {
-        const newPassword = window.SafeShift.Employees.generateTempPassword();
-        alert(`Password reset!\n\nNew temporary password: ${newPassword}\n\nAn email has been sent to the employee.`);
+        if (confirm('Generate a new temporary password for this employee?')) {
+          const newPassword = generateTempPassword();
+          alert(`Password reset!\n\nNew temporary password: ${newPassword}\n\nAn email has been sent to the employee.`);
+        }
       } else if (action === 'deactivate') {
         if (confirm('Are you sure you want to deactivate this employee?')) {
           await window.SafeShift.Employees.update(empId, { status: 'Inactive' });
@@ -337,6 +468,15 @@
 
       document.querySelectorAll('.action-dropdown').forEach(d => d.classList.remove('active'));
     });
+  }
+
+  function generateTempPassword() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%';
+    let password = '';
+    for (let i = 0; i < 12; i++) {
+      password += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return password;
   }
 
   // ==========================================
@@ -419,15 +559,13 @@
       return;
     }
 
-    // Show most recent report from this employee
     const latestReport = empReports[0];
     
     if (!latestReport) {
-      alert(`${employee.name} has not submitted any reports yet.`);
       return;
     }
 
-    // Populate modal with latest report
+    // Populate modal
     modal.querySelector('.modal-title').textContent = `Report ${latestReport.id}`;
     
     const detailBoxes = modal.querySelectorAll('.detail-box .detail-value');
@@ -508,3 +646,5 @@
   }
 
 })();
+
+console.log('Employees.js loaded successfully with fixes');
