@@ -6,13 +6,17 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
     
     switch ($method) {
-        case 'GET':
-            handleGetActivityLogs($conn);
-            break;
-            
-        default:
-            throw new Exception('Method not allowed');
-    }
+    case 'GET':
+        handleGetActivityLogs($conn);
+        break;
+    
+    case 'POST':
+        handleCreateActivityLog($conn);
+        break;
+        
+    default:
+        throw new Exception('Method not allowed');
+}
     
 } catch (Exception $e) {
     http_response_code(500);
@@ -152,5 +156,48 @@ function determineActionType($action) {
     ];
     
     return $typeMap[$action] ?? $action;
+}
+
+function handleCreateActivityLog($conn) {
+    // Get JSON input
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+    
+    if (!$data) {
+        throw new Exception('Invalid JSON data');
+    }
+    
+    // Required fields
+    $required = ['userId', 'action', 'description'];
+    foreach ($required as $field) {
+        if (!isset($data[$field])) {
+            throw new Exception("Missing required field: $field");
+        }
+    }
+    
+    // Insert activity log
+    $sql = "INSERT INTO activity_log (user_id, action, description, ip_address, created_at) 
+            VALUES (?, ?, ?, ?, NOW())";
+    
+    $stmt = $conn->prepare($sql);
+    $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    
+    $stmt->bind_param(
+        "isss",
+        $data['userId'],
+        $data['action'],
+        $data['description'],
+        $ipAddress
+    );
+    
+    if (!$stmt->execute()) {
+        throw new Exception('Failed to create activity log: ' . $stmt->error);
+    }
+    
+    echo json_encode([
+        'success' => true,
+        'message' => 'Activity logged successfully',
+        'id' => $conn->insert_id
+    ]);
 }
 ?>
