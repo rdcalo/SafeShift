@@ -1,13 +1,33 @@
 <?php
 require_once __DIR__ . '/config.php';
 
+// ==========================================
+// ENABLE DETAILED ERROR LOGGING
+// ==========================================
+error_log("=== REPORTS.PHP REQUEST START ===");
+error_log("Method: " . $_SERVER['REQUEST_METHOD']);
+error_log("Time: " . date('Y-m-d H:i:s'));
+error_log("Session ID: " . session_id());
+error_log("User ID in session: " . (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 'NOT SET'));
+error_log("User name in session: " . (isset($_SESSION['name']) ? $_SESSION['name'] : 'NOT SET'));
+error_log("User role in session: " . (isset($_SESSION['role']) ? $_SESSION['role'] : 'NOT SET'));
+
 try {
     $conn = getDBConnection();
     $method = $_SERVER['REQUEST_METHOD'];
     
     // Get raw input for POST/PUT requests
     $input = file_get_contents('php://input');
+    error_log("Raw input: " . $input);
+    
     $data = json_decode($input, true);
+    error_log("Decoded data: " . print_r($data, true));
+    
+    // Check for JSON decode errors
+    if ($input && $data === null) {
+        error_log("JSON decode error: " . json_last_error_msg());
+        throw new Exception('Invalid JSON data: ' . json_last_error_msg());
+    }
     
     switch ($method) {
         case 'GET':
@@ -27,25 +47,39 @@ try {
             break;
             
         default:
-            throw new Exception('Method not allowed');
+            throw new Exception('Method not allowed: ' . $method);
     }
     
 } catch (Exception $e) {
+    error_log("=== ERROR IN REPORTS.PHP ===");
+    error_log("Error message: " . $e->getMessage());
+    error_log("Error file: " . $e->getFile());
+    error_log("Error line: " . $e->getLine());
+    error_log("Stack trace: " . $e->getTraceAsString());
+    
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'message' => $e->getMessage()
+        'message' => $e->getMessage(),
+        'debug' => [
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+            'session_user' => isset($_SESSION['user_id']) ? 'Set' : 'Not Set'
+        ]
     ]);
 } finally {
     if (isset($conn)) {
         $conn->close();
     }
+    error_log("=== REPORTS.PHP REQUEST END ===\n");
 }
 
 // ==========================================
 // GET - Fetch Reports
 // ==========================================
 function handleGetReports($conn) {
+    error_log("Handling GET request for reports");
+    
     // Check if requesting single report by ID
     if (isset($_GET['id'])) {
         getSingleReport($conn, $_GET['id']);
@@ -87,8 +121,15 @@ function handleGetReports($conn) {
     // Order by creation date (newest first)
     $sql .= " ORDER BY r.created_at DESC";
     
+    error_log("SQL query: " . $sql);
+    
     // Prepare and execute
     $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        error_log("Failed to prepare statement: " . $conn->error);
+        throw new Exception('Database error: ' . $conn->error);
+    }
     
     if (!empty($params)) {
         $stmt->bind_param($types, ...$params);
@@ -102,6 +143,8 @@ function handleGetReports($conn) {
         $reports[] = formatReportResponse($row);
     }
     
+    error_log("Found " . count($reports) . " reports");
+    
     echo json_encode([
         'success' => true,
         'data' => $reports
@@ -112,6 +155,8 @@ function handleGetReports($conn) {
 // GET Single Report
 // ==========================================
 function getSingleReport($conn, $reportId) {
+    error_log("Fetching single report: " . $reportId);
+    
     $sql = "SELECT 
                 r.*,
                 u.full_name as reporter_name
@@ -125,6 +170,7 @@ function getSingleReport($conn, $reportId) {
     $result = $stmt->get_result();
     
     if ($result->num_rows === 0) {
+        error_log("Report not found: " . $reportId);
         throw new Exception('Report not found');
     }
     
@@ -137,49 +183,85 @@ function getSingleReport($conn, $reportId) {
 }
 
 // ==========================================
-// POST - Create Report
+// POST - Create Report (ENHANCED)
 // ==========================================
 function handleCreateReport($conn, $data) {
-    // Validate required fields
-    $required = ['title', 'type', 'severity', 'department', 'description', 'location', 'incidentDate'];
-    foreach ($required as $field) {
-        if (empty($data[$field])) {
-            throw new Exception("Missing required field: $field");
-        }
-    }
+    error_log("=== CREATE REPORT FUNCTION START ===");
     
-    // Generate unique report ID
-    $reportId = 'REP-' . time();
-    
-    // Get current user from session
+    // 1. CHECK AUTHENTICATION
     if (!isset($_SESSION['user_id'])) {
-        throw new Exception('User not authenticated');
+        error_log("ERROR: User not authenticated - session user_id not set");
+        error_log("Session contents: " . print_r($_SESSION, true));
+        throw new Exception('User not authenticated. Please log in again.');
     }
     
     $userId = $_SESSION['user_id'];
-    $userName = $_SESSION['name'];
+    $userName = $_SESSION['name'] ?? 'Unknown User';
+    $userDept = $_SESSION['department'] ?? 'Unknown Department';
     
-    // Auto-flagging logic
+    error_log("User authenticated: ID=$userId, Name=$userName, Dept=$userDept");
+    
+    // 2. VALIDATE INPUT DATA
+    if (!$data || !is_array($data)) {
+        error_log("ERROR: Invalid data format - not an array");
+        throw new Exception('Invalid data format');
+    }
+    
+    error_log("Received data fields: " . implode(', ', array_keys($data)));
+    
+    // 3. CHECK REQUIRED FIELDS
+    $required = ['title', 'type', 'severity', 'department', 'description', 'location', 'incidentDate'];
+    $missing = [];
+    
+    foreach ($required as $field) {
+        if (!isset($data[$field]) || trim($data[$field]) === '') {
+            $missing[] = $field;
+            error_log("Missing field: $field");
+        }
+    }
+    
+    if (!empty($missing)) {
+        $missingFields = implode(', ', $missing);
+        error_log("ERROR: Missing required fields: $missingFields");
+        throw new Exception("Missing required fields: $missingFields");
+    }
+    
+    // 4. SANITIZE INPUT
+    $title = trim($data['title']);
+    $description = trim($data['description']);
+    $severity = $data['severity'];
+    $department = $data['department'];
+    $location = trim($data['location']);
+    $type = $data['type'];
+    
+    error_log("Sanitized - Title: $title, Type: $type, Severity: $severity, Dept: $department");
+    
+    // 5. GENERATE REPORT ID
+    $reportId = 'REP-' . time();
+    error_log("Generated report ID: $reportId");
+    
+    // 6. AUTO-FLAGGING LOGIC
     $autoFlagged = 0;
     $flagReason = null;
     
-    // Check for flagged keywords
     $flagKeywords = ['harassment', 'discrimination', 'unsafe', 'threat', 'assault', 'abuse', 'violent'];
-    $description = strtolower($data['description']);
-    $type = strtolower($data['type']);
+    $descLower = strtolower($description);
+    $typeLower = strtolower($type);
     
     foreach ($flagKeywords as $keyword) {
-        if (strpos($description, $keyword) !== false || strpos($type, $keyword) !== false) {
+        if (strpos($descLower, $keyword) !== false || strpos($typeLower, $keyword) !== false) {
             $autoFlagged = 1;
             $flagReason = "Contains flagged keyword: $keyword";
+            error_log("Auto-flagged: $flagReason");
             break;
         }
     }
     
     // Auto-flag critical severity
-    if ($data['severity'] === 'Critical') {
+    if ($severity === 'Critical') {
         $autoFlagged = 1;
         $flagReason = $flagReason ? $flagReason . ' | Critical severity' : 'Critical severity level';
+        error_log("Auto-flagged: Critical severity");
     }
     
     // Check for multiple reports from same department in 7 days
@@ -187,7 +269,7 @@ function handleCreateReport($conn, $data) {
     $checkSql = "SELECT COUNT(*) as count FROM reports 
                  WHERE department = ? AND created_at >= ?";
     $stmt = $conn->prepare($checkSql);
-    $stmt->bind_param("ss", $data['department'], $sevenDaysAgo);
+    $stmt->bind_param("ss", $department, $sevenDaysAgo);
     $stmt->execute();
     $countResult = $stmt->get_result()->fetch_assoc();
     
@@ -195,34 +277,60 @@ function handleCreateReport($conn, $data) {
         $autoFlagged = 1;
         $flagReason = $flagReason ? $flagReason . ' | Multiple reports from department' : 
                       'Multiple similar reports from this department in past 7 days';
+        error_log("Auto-flagged: Multiple reports from department");
     }
     
-    // Prepare insert statement
+    // 7. PREPARE INSERT STATEMENT
     $sql = "INSERT INTO reports (
                 report_id, title, description, severity, status, department, 
                 location, reporter_id, reporter_name, created_at, updated_at
             ) VALUES (?, ?, ?, ?, 'New', ?, ?, ?, ?, NOW(), NOW())";
     
+    error_log("Preparing SQL insert...");
+    
     $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        error_log("ERROR: Failed to prepare statement: " . $conn->error);
+        throw new Exception('Database error: Failed to prepare statement - ' . $conn->error);
+    }
+    
+    // 8. BIND PARAMETERS
     $stmt->bind_param(
-        "ssssssss",
+        "sssissis", // FIXED: Changed to match actual parameter types
         $reportId,
-        $data['title'],
-        $data['description'],
-        $data['severity'],
-        $data['department'],
-        $data['location'],
+        $title,
+        $description,
+        $severity,
+        $department,
+        $location,
         $userId,
         $userName
     );
     
+    error_log("Parameters bound successfully");
+    
+    // 9. EXECUTE INSERT
     if (!$stmt->execute()) {
+        error_log("ERROR: Failed to execute insert: " . $stmt->error);
         throw new Exception('Failed to create report: ' . $stmt->error);
     }
     
-    // Log activity
-    logActivity($conn, $userId, 'Report Submitted', 
-        "New {$data['type']} report submitted - Department: {$data['department']}", $userName);
+    $insertedRows = $stmt->affected_rows;
+    error_log("SUCCESS: Report inserted. Affected rows: $insertedRows");
+    
+    // 10. LOG ACTIVITY
+    try {
+        logActivity($conn, $userId, 'Report Submitted', 
+            "New $type report submitted - Department: $department", $userName);
+        error_log("Activity logged successfully");
+    } catch (Exception $e) {
+        error_log("WARNING: Failed to log activity: " . $e->getMessage());
+        // Don't fail the report creation if logging fails
+    }
+    
+    // 11. RETURN SUCCESS
+    error_log("=== CREATE REPORT SUCCESS ===");
     
     echo json_encode([
         'success' => true,
@@ -237,6 +345,8 @@ function handleCreateReport($conn, $data) {
 // PUT - Update Report
 // ==========================================
 function handleUpdateReport($conn, $data) {
+    error_log("Updating report: " . ($data['id'] ?? 'unknown'));
+    
     if (empty($data['id'])) {
         throw new Exception('Report ID is required');
     }
@@ -303,6 +413,8 @@ function handleUpdateReport($conn, $data) {
         throw new Exception('Failed to update report: ' . $stmt->error);
     }
     
+    error_log("Report updated successfully");
+    
     // Log activity
     if (isset($_SESSION['user_id']) && isset($data['status'])) {
         $userName = $_SESSION['name'] ?? 'System';
@@ -320,6 +432,8 @@ function handleUpdateReport($conn, $data) {
 // DELETE - Delete Report
 // ==========================================
 function handleDeleteReport($conn, $data) {
+    error_log("Deleting report: " . ($data['id'] ?? 'unknown'));
+    
     if (empty($data['id'])) {
         throw new Exception('Report ID is required');
     }
@@ -340,6 +454,8 @@ function handleDeleteReport($conn, $data) {
     if ($stmt->affected_rows === 0) {
         throw new Exception('Report not found');
     }
+    
+    error_log("Report deleted successfully");
     
     echo json_encode([
         'success' => true,
@@ -375,8 +491,15 @@ function logActivity($conn, $userId, $type, $description, $userName) {
             VALUES (?, ?, ?, ?, NOW())";
     
     $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        throw new Exception('Failed to prepare activity log: ' . $conn->error);
+    }
+    
     $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     $stmt->bind_param("isss", $userId, $type, $description, $ipAddress);
-    $stmt->execute();
+    
+    if (!$stmt->execute()) {
+        throw new Exception('Failed to log activity: ' . $stmt->error);
+    }
 }
 ?>
