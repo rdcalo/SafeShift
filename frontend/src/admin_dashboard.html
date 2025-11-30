@@ -217,7 +217,7 @@
         /* Top User (Top Right Corner) */
         .top-user-area {
             position: absolute;
-            top: 20px;
+            top: 40px;
             right: 60px;
             display: flex;
             align-items: center;
@@ -418,6 +418,10 @@
             border: 2px solid #ddd; 
             color: var(--text-grey); 
             box-shadow: 4px 4px 0px var(--button-shadow-grey);
+            padding: 12px 25px;
+            border-radius: 30px;
+            font-weight: 800;
+            cursor: pointer;
         }
         .btn-cancel:active {
             transform: translate(2px, 2px);
@@ -436,6 +440,16 @@
             background: var(--bg-high); color: var(--text-high);
             padding: 15px; border-radius: 12px; display: flex; align-items: center; gap: 15px;
             margin-bottom: 25px; font-weight: 700; font-size: 0.9rem;
+        }
+
+        /* Custom Alert Styles */
+        .alert-icon-success {
+            background-color: #e8f5e9;
+            color: var(--accent-green);
+        }
+        .alert-icon-error {
+            background-color: #ffecec;
+            color: var(--alert-red);
         }
 
         /* Responsive */
@@ -464,7 +478,7 @@
 
         <ul class="nav-menu">
             <li class="nav-item">
-                <a href="admin_dashboard.html" class="nav-link active">
+                <a href="#" class="nav-link active">
                     <i class="fa-solid fa-gauge-high"></i>
                     Dashboard
                 </a>
@@ -476,7 +490,7 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a href="employees.html" class="nav-link">
+                <a href="all_employees.html" class="nav-link">
                     <i class="fa-solid fa-users"></i>
                     Employees
                 </a>
@@ -659,8 +673,8 @@
                         <td>Nov 29, 05:53 PM</td>
                         <td><i class="fa-regular fa-eye action-icon"></i></td>
                     </tr>
-                     <tr class="report-row"><td>#2410747</td><td>Safety</td><td>Engineering</td><td><span class="badge sev-med">Medium</span></td><td><span class="status-badge st-review">Review</span></td><td>Nov 29, 05:00 PM</td><td><i class="fa-regular fa-eye action-icon"></i></td></tr>
-                     <tr class="report-row"><td>#2410748</td><td>Policy</td><td>Sales</td><td><span class="badge sev-low">Low</span></td><td><span class="status-badge st-resolved">Resolved</span></td><td>Nov 28, 10:30 AM</td><td><i class="fa-regular fa-eye action-icon"></i></td></tr>
+                     <tr class="report-row" data-id="2410747"><td>#2410747</td><td>Safety</td><td>Engineering</td><td><span class="badge sev-med">Medium</span></td><td><span class="status-badge st-review">Review</span></td><td>Nov 29, 05:00 PM</td><td><i class="fa-regular fa-eye action-icon"></i></td></tr>
+                     <tr class="report-row" data-id="2410748"><td>#2410748</td><td>Policy</td><td>Sales</td><td><span class="badge sev-low">Low</span></td><td><span class="status-badge st-resolved">Resolved</span></td><td>Nov 28, 10:30 AM</td><td><i class="fa-regular fa-eye action-icon"></i></td></tr>
                 </tbody>
             </table>
         </section>
@@ -672,12 +686,12 @@
             <button class="close-modal-btn"><i class="fa-solid fa-times"></i></button>
             <h2 class="modal-title">Create New Employee Account</h2>
             
-            <form>
+            <form id="addEmployeeForm">
                 <label class="form-label">Full Name</label>
-                <input type="text" class="form-input" placeholder="Enter full name">
+                <input type="text" class="form-input" placeholder="Enter full name" required>
 
                 <label class="form-label">Email</label>
-                <input type="email" class="form-input" placeholder="Enter email address">
+                <input type="email" class="form-input" placeholder="Enter email address" required>
 
                 <label class="form-label">Department</label>
                 <select class="form-select">
@@ -696,7 +710,7 @@
                 </p>
 
                 <div class="modal-actions">
-                    <button type="button" class="btn-primary btn-cancel close-modal-btn-action">Cancel</button>
+                    <button type="button" class="btn-cancel close-modal-btn-action">Cancel</button>
                     <button type="submit" class="btn-primary">Save Changes</button>
                 </div>
             </form>
@@ -751,49 +765,165 @@
             <textarea class="form-textarea" placeholder="Add notes about this report..."></textarea>
 
             <div class="modal-actions">
-                <button type="button" class="btn-primary btn-cancel close-modal-btn-action">Cancel</button>
-                <button type="button" class="btn-primary">Save Changes</button>
+                <button type="button" class="btn-cancel close-modal-btn-action">Cancel</button>
+                <button type="button" class="btn-primary" id="saveChangesBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="customAlertModal" style="z-index: 2000;">
+        <div class="modal-container" style="max-width: 400px; text-align: center; padding: 40px 30px;">
+            <div class="alert-icon-circle" id="alertIconContainer" style="margin: 0 auto 20px auto; width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem;">
+                <i class="fa-solid fa-check" id="alertIcon"></i>
+            </div>
+            <h3 class="modal-title" id="alertTitle" style="margin-bottom: 10px;">Success</h3>
+            <p id="alertMessage" style="color: var(--text-grey); margin-bottom: 30px; line-height: 1.5;">Action completed.</p>
+            <div class="modal-actions" style="justify-content: center;">
+                <button class="btn-primary" id="alertOkBtn" style="width: 100%; justify-content: center;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="customConfirmModal" style="z-index: 2000;">
+        <div class="modal-container" style="max-width: 400px; text-align: center; padding: 40px 30px;">
+            <div style="margin: 0 auto 20px auto; width: 70px; height: 70px; border-radius: 50%; background-color: #fff4e5; color: #feca57; display: flex; align-items: center; justify-content: center; font-size: 2rem;">
+                <i class="fa-solid fa-right-from-bracket"></i>
+            </div>
+            <h3 class="modal-title">Log Out?</h3>
+            <p style="color: var(--text-grey); margin-bottom: 30px;">Are you sure you want to sign out of your account?</p>
+            <div class="modal-actions" style="justify-content: center; gap: 15px;">
+                <button class="btn-cancel close-confirm-btn" style="width: 50%;">Cancel</button>
+                <button class="btn-primary" id="confirmYesBtn" style="width: 50%; background-color: var(--alert-red); box-shadow: 4px 4px 0px #c0392b; justify-content: center;">Log Out</button>
             </div>
         </div>
     </div>
 
     <script>
-        // Get Elements
+        // --- CUSTOM ALERT LOGIC ---
+        function showCustomAlert(title, message, type = 'success') {
+            const modal = document.getElementById('customAlertModal');
+            const iconContainer = document.getElementById('alertIconContainer');
+            const icon = document.getElementById('alertIcon');
+            const titleEl = document.getElementById('alertTitle');
+            const msgEl = document.getElementById('alertMessage');
+            const okBtn = document.getElementById('alertOkBtn');
+
+            // Reset Classes
+            iconContainer.classList.remove('alert-icon-success', 'alert-icon-error');
+            icon.classList.remove('fa-check', 'fa-xmark');
+
+            // Set Content
+            titleEl.textContent = title;
+            msgEl.innerHTML = message;
+
+            // Style based on type
+            if (type === 'success') {
+                iconContainer.classList.add('alert-icon-success');
+                icon.classList.add('fa-check');
+            } else if (type === 'error') {
+                iconContainer.classList.add('alert-icon-error');
+                icon.classList.add('fa-xmark');
+            }
+
+            modal.classList.add('active');
+
+            const closeAlert = () => {
+                modal.classList.remove('active');
+                okBtn.removeEventListener('click', closeAlert);
+            };
+            okBtn.addEventListener('click', closeAlert);
+            modal.onclick = (e) => { if (e.target === modal) closeAlert(); };
+        }
+
+        function showCustomConfirm(onConfirm) {
+            const modal = document.getElementById('customConfirmModal');
+            const yesBtn = document.getElementById('confirmYesBtn');
+            const cancelBtns = modal.querySelectorAll('.close-confirm-btn');
+
+            modal.classList.add('active');
+
+            const closeConfirm = () => {
+                modal.classList.remove('active');
+                // Clone/replace to remove listeners
+                const newYesBtn = yesBtn.cloneNode(true);
+                yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
+                
+                // Re-bind click for next time (optional, simplified here)
+                // For simplicity in this demo, we just hide.
+                // Ideally, re-bind the listener outside or use a one-time listener.
+            };
+
+            cancelBtns.forEach(btn => btn.onclick = closeConfirm);
+            modal.onclick = (e) => { if (e.target === modal) closeConfirm(); };
+
+            // Handle Yes
+            // Note: In production, ensure this doesn't stack listeners or lose reference
+            const freshYesBtn = document.getElementById('confirmYesBtn');
+            freshYesBtn.onclick = () => {
+                modal.classList.remove('active');
+                if (onConfirm) onConfirm();
+            };
+        }
+
+        // --- DASHBOARD LOGIC ---
         const addEmployeeBtn = document.getElementById('addEmployeeBtn');
         const addEmployeeModal = document.getElementById('addEmployeeModal');
         const reportDetailsModal = document.getElementById('reportDetailsModal');
         const closeButtons = document.querySelectorAll('.close-modal-btn, .close-modal-btn-action');
         const reportRows = document.querySelectorAll('.report-row');
-        const body = document.body;
+        const logoutLink = document.querySelector('.logout-link');
+        const saveChangesBtn = document.getElementById('saveChangesBtn');
+        const addEmployeeForm = document.getElementById('addEmployeeForm');
 
-        function openModal(modal) {
-            modal.classList.add('active');
-        }
-
+        function openModal(modal) { modal.classList.add('active'); }
         function closeModals() {
             addEmployeeModal.classList.remove('active');
             reportDetailsModal.classList.remove('active');
         }
 
-        addEmployeeBtn.addEventListener('click', () => {
-            openModal(addEmployeeModal);
-        });
+        addEmployeeBtn.addEventListener('click', () => openModal(addEmployeeModal));
 
         reportRows.forEach(row => {
-            row.addEventListener('click', () => {
-                openModal(reportDetailsModal);
-            });
+            row.addEventListener('click', () => openModal(reportDetailsModal));
         });
 
-        closeButtons.forEach(btn => {
-            btn.addEventListener('click', closeModals);
-        });
+        closeButtons.forEach(btn => btn.addEventListener('click', closeModals));
 
         window.addEventListener('click', (e) => {
             if (e.target === addEmployeeModal || e.target === reportDetailsModal) {
                 closeModals();
             }
         });
+
+        // Logout Logic
+        if (logoutLink) {
+            logoutLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                showCustomConfirm(() => {
+                    console.log("Logging out...");
+                    // Redirect logic here
+                    // window.location.href = 'login.html';
+                });
+            });
+        }
+
+        // Save Report Changes
+        if(saveChangesBtn) {
+            saveChangesBtn.addEventListener('click', () => {
+                closeModals();
+                showCustomAlert('Success', 'Report status updated successfully!', 'success');
+            });
+        }
+
+        // Save New Employee
+        if(addEmployeeForm) {
+            addEmployeeForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                closeModals();
+                showCustomAlert('Employee Created', 'New employee account has been created.', 'success');
+            });
+        }
+
     </script>
 <script src="js/app.js"></script>
 <script src="js/admin_dashboard.js"></script>

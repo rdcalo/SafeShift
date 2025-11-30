@@ -206,8 +206,6 @@
       try {
         const result = await window.SafeShift.Employees.create(formData);
         
-        alert(`Employee created successfully!\n\nName: ${result.employee.name}\nEmail: ${result.employee.email}\nTemporary Password: ${result.tempPassword}\n\nAn email has been sent to the employee.`);
-        
         modal.classList.remove('active');
         form.reset();
         

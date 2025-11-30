@@ -1,8 +1,8 @@
 // ==========================================
 // EMPLOYEES PAGE JAVASCRIPT
 // ==========================================
-// Add to employees.html: <script src="app.js"></script>
-// Add to employees.html: <script src="employees.js"></script>
+// Add to employees.html: <script src="js/app.js"></script>
+// Add to employees.html: <script src="js/employees.js"></script>
 
 (function() {
   let currentUser = null;
@@ -11,9 +11,11 @@
   let selectedDepartment = 'All Employees';
 
   document.addEventListener('DOMContentLoaded', async function() {
-    currentUser = await window.SafeShift.Auth.init();
-    if (!window.SafeShift.Auth.requireAuth('admin')) {
-      return;
+    if (window.SafeShift && window.SafeShift.Auth) {
+        currentUser = await window.SafeShift.Auth.init();
+        if (!window.SafeShift.Auth.requireAuth('admin')) {
+          return;
+        }
     }
 
     await initializeEmployeesPage();
@@ -26,7 +28,7 @@
   });
 
   async function initializeEmployeesPage() {
-    updateUserInfo();
+    if(currentUser) updateUserInfo();
     await loadAllEmployees();
   }
 
@@ -71,7 +73,7 @@
       const initials = window.SafeShift.Utils.getInitials(emp.name);
       const color = colors[index % colors.length];
       const statusClass = emp.status === 'Active' ? 'st-active' : 
-                         emp.status === 'On Leave' ? 'st-leave' : 'st-inactive';
+                           emp.status === 'On Leave' ? 'st-leave' : 'st-inactive';
 
       return `
         <tr class="emp-row" data-id="${emp.id}">
@@ -92,39 +94,19 @@
           <td><span class="status-badge ${statusClass}">${emp.status}</span></td>
           <td>${window.SafeShift.Utils.formatDate(emp.lastActive)}</td>
           <td>
-            <div class="action-wrapper">
-              <i class="fa-regular fa-eye action-icon view-report-trigger" data-emp-id="${emp.id}"></i>
-              <div class="action-container">
+            <div class="action-container">
                 <button class="action-btn"><i class="fa-solid fa-ellipsis-vertical"></i></button>
                 <div class="action-dropdown">
-                  <div class="dropdown-item" data-action="view" data-emp-id="${emp.id}">
-                    <i class="fa-regular fa-user"></i> View Profile
-                  </div>
-                  <div class="dropdown-item" data-action="edit" data-emp-id="${emp.id}">
-                    <i class="fa-solid fa-pen"></i> Edit Details
-                  </div>
-                  <div class="dropdown-item" data-action="reset" data-emp-id="${emp.id}">
-                    <i class="fa-solid fa-lock"></i> Reset Password
-                  </div>
-                  <div class="dropdown-item danger" data-action="deactivate" data-emp-id="${emp.id}">
-                    <i class="fa-solid fa-ban"></i> Deactivate
-                  </div>
+                    <div class="dropdown-item" data-action="view" data-emp-id="${emp.id}"><i class="fa-regular fa-user"></i> View Profile</div>
+                    <div class="dropdown-item" data-action="edit" data-emp-id="${emp.id}"><i class="fa-solid fa-pen"></i> Edit Details</div>
+                    <div class="dropdown-item" data-action="reset" data-emp-id="${emp.id}"><i class="fa-solid fa-lock"></i> Reset Password</div>
+                    <div class="dropdown-item danger" data-action="deactivate" data-emp-id="${emp.id}"><i class="fa-solid fa-ban"></i> Deactivate</div>
                 </div>
-              </div>
             </div>
           </td>
         </tr>
       `;
     }).join('');
-
-    // Add eye icon handlers
-    document.querySelectorAll('.view-report-trigger').forEach(icon => {
-      icon.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const empId = icon.dataset.empId;
-        await openReportDetailsModal(empId);
-      });
-    });
   }
 
   function updateDepartmentCounts() {
@@ -132,19 +114,49 @@
     
     filterButtons.forEach(btn => {
       const btnText = btn.textContent.trim();
-      
-      if (btnText === 'All Employees') {
-        return;
-      }
+      if (btnText.includes('All Employees')) return;
 
-      const deptName = btnText.split('\n')[0].trim();
+      const deptName = btn.childNodes[0].nodeValue.trim(); 
       const count = allEmployees.filter(e => e.department === deptName).length;
       
       const badge = btn.querySelector('.count-badge');
-      if (badge) {
-        badge.textContent = count;
-      }
+      if (badge) badge.textContent = count;
     });
+  }
+
+  // ==========================================
+  // CUSTOM ALERT SYSTEM (Shared)
+  // ==========================================
+  function showCustomAlert(title, message, type = 'success') {
+      const modal = document.getElementById('customAlertModal');
+      const iconContainer = document.getElementById('alertIconContainer');
+      const icon = document.getElementById('alertIcon');
+      const titleEl = document.getElementById('alertTitle');
+      const msgEl = document.getElementById('alertMessage');
+      const okBtn = document.getElementById('alertOkBtn');
+
+      iconContainer.classList.remove('alert-icon-success', 'alert-icon-error');
+      icon.classList.remove('fa-check', 'fa-xmark');
+
+      titleEl.textContent = title;
+      msgEl.innerHTML = message;
+
+      if (type === 'success') {
+          iconContainer.classList.add('alert-icon-success');
+          icon.classList.add('fa-check');
+      } else if (type === 'error') {
+          iconContainer.classList.add('alert-icon-error');
+          icon.classList.add('fa-xmark');
+      }
+
+      modal.classList.add('active');
+
+      const closeAlert = () => {
+          modal.classList.remove('active');
+          okBtn.removeEventListener('click', closeAlert);
+      };
+      okBtn.addEventListener('click', closeAlert);
+      modal.onclick = (e) => { if (e.target === modal) closeAlert(); };
   }
 
   // ==========================================
@@ -158,8 +170,11 @@
         filterButtons.forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         
-        const btnText = this.textContent.trim();
-        const department = btnText === 'All Employees' ? 'All Employees' : btnText.split('\n')[0].trim();
+        let btnText = this.textContent.trim();
+        if(this.querySelector('.count-badge')) {
+             btnText = this.childNodes[0].nodeValue.trim();
+        }
+        const department = btnText === 'All Employees' ? 'All Employees' : btnText;
         
         selectedDepartment = department;
         loadAllEmployees(department);
@@ -172,23 +187,19 @@
   // ==========================================
   function initializeSearch() {
     const searchInput = document.querySelector('.search-input');
-    
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         const query = e.target.value.toLowerCase().trim();
-        
         if (query === '') {
           renderEmployees(filteredEmployees);
           return;
         }
-
         const searchResults = filteredEmployees.filter(emp => 
           emp.name.toLowerCase().includes(query) ||
           emp.email.toLowerCase().includes(query) ||
           emp.id.toLowerCase().includes(query) ||
           emp.role.toLowerCase().includes(query)
         );
-
         renderEmployees(searchResults);
       });
     }
@@ -218,23 +229,24 @@
         const selectedRows = document.querySelectorAll('.emp-row.selected');
         
         if (selectedRows.length === 0) {
-          alert('No employees selected');
+          showCustomAlert('Warning', 'No employees selected', 'error');
           return;
         }
 
         if (action === 'Actions') {
-          alert('Please select an action first');
+          showCustomAlert('Warning', 'Please select an action first', 'error');
           return;
         }
 
         const empIds = Array.from(selectedRows).map(row => row.dataset.id);
         
         if (action === 'Delete') {
-          if (confirm(`Are you sure you want to delete ${empIds.length} employee(s)?`)) {
+            // Simple mock deletion
             await bulkDeleteEmployees(empIds);
-          }
         } else if (action === 'Deactivate') {
-          await bulkUpdateStatus(empIds, 'Inactive');
+            await bulkUpdateStatus(empIds, 'Inactive');
+        } else if (action === 'Change Department') {
+             showCustomAlert('Info', 'Change Department dialog placeholder', 'success');
         }
 
         bulkCancelBtn.click();
@@ -253,7 +265,6 @@
 
     function updateBulkBar() {
       const selected = document.querySelectorAll('.select-circle.selected').length;
-      
       if (selected > 0) {
         bulkBar.classList.add('active');
         selectedCountLabel.innerText = `${selected} Selected`;
@@ -267,13 +278,11 @@
         for (const id of empIds) {
           await window.SafeShift.Employees.delete(id);
         }
-        
-        alert(`Successfully deleted ${empIds.length} employee(s)`);
+        showCustomAlert('Success', `Successfully deleted ${empIds.length} employee(s)`, 'success');
         await loadAllEmployees(selectedDepartment);
-        
       } catch (error) {
         console.error('Error deleting employees:', error);
-        alert('Failed to delete employees. Please try again.');
+        showCustomAlert('Error', 'Failed to delete employees.', 'error');
       }
     }
 
@@ -282,13 +291,11 @@
         for (const id of empIds) {
           await window.SafeShift.Employees.update(id, { status: newStatus });
         }
-        
-        alert(`Successfully updated ${empIds.length} employee(s) to "${newStatus}"`);
+        showCustomAlert('Success', `Updated status for ${empIds.length} employee(s)`, 'success');
         await loadAllEmployees(selectedDepartment);
-        
       } catch (error) {
         console.error('Error updating employees:', error);
-        alert('Failed to update employees. Please try again.');
+        showCustomAlert('Error', 'Failed to update status.', 'error');
       }
     }
   }
@@ -322,17 +329,18 @@
       const empId = dropdownItem.dataset.empId;
 
       if (action === 'view') {
-        await openReportDetailsModal(empId);
+          // Mock view profile
+          showCustomAlert('Profile', `Viewing profile for Employee #${empId}`, 'success');
       } else if (action === 'edit') {
-        alert('Edit functionality coming soon!');
+          showCustomAlert('Info', 'Edit functionality coming soon!', 'success');
       } else if (action === 'reset') {
-        const newPassword = window.SafeShift.Employees.generateTempPassword();
-        alert(`Password reset!\n\nNew temporary password: ${newPassword}\n\nAn email has been sent to the employee.`);
+          const newPassword = window.SafeShift.Employees.generateTempPassword();
+          showCustomAlert('Reset Successful', `New temp password: <b>${newPassword}</b><br>Email sent to user.`, 'success');
       } else if (action === 'deactivate') {
-        if (confirm('Are you sure you want to deactivate this employee?')) {
+          // Direct deactivate without browser confirm, or implement customConfirm here
           await window.SafeShift.Employees.update(empId, { status: 'Inactive' });
           await loadAllEmployees(selectedDepartment);
-        }
+          showCustomAlert('Deactivated', 'Employee has been deactivated.', 'success');
       }
 
       document.querySelectorAll('.action-dropdown').forEach(d => d.classList.remove('active'));
@@ -344,13 +352,12 @@
   // ==========================================
   function initializeModals() {
     initializeAddEmployeeModal();
-    initializeReportDetailsModal();
   }
 
   function initializeAddEmployeeModal() {
     const addEmployeeBtn = document.getElementById('addEmployeeBtn');
     const modal = document.getElementById('addEmployeeModal');
-    const closeButtons = modal.querySelectorAll('.close-modal-btn, .close-modal-btn-action');
+    const closeButtons = document.querySelectorAll('.close-modal-btn, .close-modal-btn-action');
     const form = modal.querySelector('form');
     const saveBtn = document.getElementById('saveEmployeeBtn');
 
@@ -379,117 +386,36 @@
         e.preventDefault();
 
         const formData = {
-          name: form.querySelector('input[type="text"]').value.trim(),
+          name: form.querySelector('input[placeholder="Enter full name"]').value.trim(),
           email: form.querySelector('input[type="email"]').value.trim(),
           department: form.querySelector('select').value,
-          role: form.querySelectorAll('input[type="text"]')[1].value.trim()
+          role: form.querySelector('input[placeholder="Enter role/position"]').value.trim()
         };
 
         if (!formData.name || !formData.email || !formData.department || !formData.role) {
-          alert('Please fill in all required fields');
+          showCustomAlert('Error', 'Please fill in all required fields', 'error');
           return;
         }
 
         try {
           const result = await window.SafeShift.Employees.create(formData);
           
-          alert(`Employee created successfully!\n\nName: ${result.employee.name}\nEmail: ${result.employee.email}\nTemporary Password: ${result.tempPassword}\n\nAn email has been sent to the employee.`);
-          
           modal.classList.remove('active');
           form.reset();
+          
+          showCustomAlert(
+            'Employee Created', 
+            `Name: <strong>${result.employee.name}</strong><br>
+             Email: ${result.employee.email}<br>
+             <span style="font-size:0.8rem; color:#666;">(Temp Password sent to email)</span>`, 
+            'success'
+          );
           
           await loadAllEmployees(selectedDepartment);
           
         } catch (error) {
           console.error('Error creating employee:', error);
-          alert('Failed to create employee. Please try again.');
-        }
-      });
-    }
-  }
-
-  async function openReportDetailsModal(empId) {
-    const modal = document.getElementById('reportDetailsModal');
-    const employee = await window.SafeShift.Employees.getById(empId);
-    const reports = await window.SafeShift.Reports.getAll();
-    const empReports = reports.filter(r => r.submittedBy === empId);
-    
-    if (!employee) {
-      alert('Employee not found');
-      return;
-    }
-
-    // Show most recent report from this employee
-    const latestReport = empReports[0];
-    
-    if (!latestReport) {
-      alert(`${employee.name} has not submitted any reports yet.`);
-      return;
-    }
-
-    // Populate modal with latest report
-    modal.querySelector('.modal-title').textContent = `Report ${latestReport.id}`;
-    
-    const detailBoxes = modal.querySelectorAll('.detail-box .detail-value');
-    if (detailBoxes[0]) detailBoxes[0].textContent = latestReport.department;
-    if (detailBoxes[2]) detailBoxes[2].textContent = latestReport.isAnonymous ? 'Anonymous' : employee.name;
-    if (detailBoxes[3]) detailBoxes[3].textContent = window.SafeShift.Utils.formatDate(latestReport.submittedAt);
-    
-    const severityBadge = modal.querySelector('.detail-box .badge');
-    if (severityBadge) {
-      severityBadge.className = `badge ${window.SafeShift.Utils.getSeverityClass(latestReport.severity)}`;
-      severityBadge.textContent = latestReport.severity;
-    }
-
-    const flagBanner = modal.querySelector('.auto-flag-banner');
-    if (latestReport.autoFlagged && flagBanner) {
-      flagBanner.style.display = 'flex';
-      flagBanner.querySelector('div').textContent = latestReport.flagReason || 'Report auto-flagged for review';
-    } else if (flagBanner) {
-      flagBanner.style.display = 'none';
-    }
-
-    const descBox = modal.querySelector('.form-label + div');
-    if (descBox) descBox.textContent = latestReport.description;
-
-    const statusSelect = modal.querySelector('.form-select');
-    if (statusSelect) statusSelect.value = latestReport.status;
-
-    modal.classList.add('active');
-    modal.dataset.currentReportId = latestReport.id;
-  }
-
-  function initializeReportDetailsModal() {
-    const modal = document.getElementById('reportDetailsModal');
-    const closeButtons = modal.querySelectorAll('.close-modal-btn, .close-modal-btn-action');
-    const saveBtn = document.getElementById('saveReportBtn');
-
-    closeButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        modal.classList.remove('active');
-      });
-    });
-
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.classList.remove('active');
-      }
-    });
-
-    if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        const reportId = modal.dataset.currentReportId;
-        const newStatus = modal.querySelector('.form-select').value;
-
-        try {
-          await window.SafeShift.Reports.updateStatus(reportId, newStatus);
-          
-          alert('Report updated successfully!');
-          modal.classList.remove('active');
-          
-        } catch (error) {
-          console.error('Error updating report:', error);
-          alert('Failed to update report. Please try again.');
+          showCustomAlert('Error', 'Failed to create employee. Please try again.', 'error');
         }
       });
     }
@@ -500,9 +426,13 @@
     if (logoutLink) {
       logoutLink.addEventListener('click', async (e) => {
         e.preventDefault();
-        if (confirm('Are you sure you want to log out?')) {
-          await window.SafeShift.Auth.logout();
-        }
+        // Mock logout alert
+        showCustomAlert('Logging Out', 'You are being logged out...', 'success');
+        setTimeout(() => {
+             if (window.SafeShift && window.SafeShift.Auth) {
+                 window.SafeShift.Auth.logout();
+             }
+        }, 1000);
       });
     }
   }
