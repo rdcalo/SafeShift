@@ -1,6 +1,7 @@
 // ==========================================
-// ALL REPORTS PAGE JAVASCRIPT - FIXED VERSION
+// ALL REPORTS PAGE JAVASCRIPT - FIXED STATUS UPDATE
 // ==========================================
+// Replace the existing all_reports.js with this version
 
 (function() {
   let currentUser = null;
@@ -46,20 +47,17 @@
     try {
       console.log('Loading reports for department:', department);
       
-      // Build query parameters
       let queryParams = '';
       if (department !== 'All') {
         queryParams = `?department=${encodeURIComponent(department)}`;
       }
       
-      // Call API with department filter
       const result = await window.SafeShift.API.call(`reports.php${queryParams}`);
       
       if (result.success) {
         allReports = result.data;
         console.log('Loaded reports:', allReports.length);
         
-        // Apply search if there's an active query
         if (currentSearchQuery) {
           applySearch(currentSearchQuery);
         } else {
@@ -114,7 +112,6 @@
       </tr>
     `).join('');
 
-    // Add row click handlers
     document.querySelectorAll('.report-row').forEach(row => {
       row.addEventListener('click', (e) => {
         if (!e.target.closest('.select-circle') && !e.target.closest('.action-icon')) {
@@ -128,7 +125,6 @@
   async function updateDepartmentCounts() {
     const filterButtons = document.querySelectorAll('.filter-btn');
     
-    // Get all reports without filters for accurate counts
     const allReportsResult = await window.SafeShift.API.call('reports.php');
     const allReportsData = allReportsResult.success ? allReportsResult.data : [];
     
@@ -139,7 +135,6 @@
         return;
       }
 
-      // Extract department name (everything before the count badge)
       const deptMatch = btnText.match(/^([A-Za-z\s]+)/);
       if (!deptMatch) return;
       
@@ -150,7 +145,6 @@
       if (badge) {
         badge.textContent = count;
       } else {
-        // If badge doesn't exist, add it
         const textNode = Array.from(btn.childNodes).find(node => node.nodeType === 3);
         if (textNode) {
           textNode.textContent = deptName + ' ';
@@ -173,20 +167,15 @@
       btn.addEventListener('click', async function() {
         console.log('Filter button clicked:', this.textContent);
         
-        // Remove active from all
         filterButtons.forEach(b => b.classList.remove('active'));
-        
-        // Add active to clicked
         this.classList.add('active');
         
-        // Get department name
         const btnText = this.textContent.trim();
         let department;
         
         if (btnText === 'All') {
           department = 'All';
         } else {
-          // Extract department name (everything before the count badge)
           const deptMatch = btnText.match(/^([A-Za-z\s]+)/);
           department = deptMatch ? deptMatch[1].trim() : btnText;
         }
@@ -200,13 +189,12 @@
   }
 
   // ==========================================
-  // SEARCH - FIXED VERSION
+  // SEARCH
   // ==========================================
   function initializeSearch() {
     const searchInput = document.querySelector('.search-input');
     
     if (searchInput) {
-      // Debounce search to avoid too many requests
       let searchTimeout;
       
       searchInput.addEventListener('input', (e) => {
@@ -219,15 +207,13 @@
           console.log('Searching for:', query);
           
           if (query === '') {
-            // If search is cleared, just show current filtered reports
             filteredReports = allReports;
             renderReports(filteredReports);
             return;
           }
 
-          // Apply search filter
           applySearch(query);
-        }, 300); // Wait 300ms after user stops typing
+        }, 300);
       });
     }
   }
@@ -239,11 +225,9 @@
       return;
     }
 
-    // Try API-based search first (more efficient for large datasets)
     try {
       let queryParams = `?search=${encodeURIComponent(query)}`;
       
-      // Include department filter if active
       if (selectedDepartment !== 'All') {
         queryParams += `&department=${encodeURIComponent(selectedDepartment)}`;
       }
@@ -258,7 +242,6 @@
     } catch (error) {
       console.error('Search error:', error);
       
-      // Fallback to client-side search
       filteredReports = allReports.filter(report => 
         report.id.toLowerCase().includes(query) ||
         report.type.toLowerCase().includes(query) ||
@@ -306,7 +289,6 @@
 
         const reportIds = Array.from(selectedRows).map(row => row.dataset.id);
         
-        // Apply action based on selection
         if (action === 'Mark Resolved') {
           await bulkUpdateStatus(reportIds, 'Resolved');
         } else if (action === 'Mark Under Review') {
@@ -315,7 +297,6 @@
           await bulkUpdateStatus(reportIds, 'Escalated');
         }
 
-        // Reset selection
         bulkCancelBtn.click();
       });
     }
@@ -358,7 +339,7 @@
   }
 
   // ==========================================
-  // REPORT DETAILS MODAL
+  // REPORT DETAILS MODAL - FIXED VERSION
   // ==========================================
   function initializeModal() {
     const modal = document.getElementById('reportDetailsModal');
@@ -381,27 +362,61 @@
       saveBtn.addEventListener('click', async () => {
         const reportId = modal.dataset.currentReportId;
         const newStatus = modal.querySelector('.form-select').value;
-        const notes = modal.querySelector('.form-textarea').value;
+        
+        console.log('=== SAVE BUTTON CLICKED ===');
+        console.log('Report ID:', reportId);
+        console.log('New Status:', newStatus);
+
+        if (!reportId) {
+          console.error('No report ID found');
+          alert('Error: No report selected');
+          return;
+        }
+
+        if (!newStatus) {
+          console.error('No status selected');
+          alert('Please select a status');
+          return;
+        }
 
         try {
-          await window.SafeShift.Reports.updateStatus(reportId, newStatus);
+          console.log('Calling updateStatus API...');
           
-          alert('Report updated successfully!');
-          modal.classList.remove('active');
+          // FIXED: Direct API call with proper logging
+          const result = await window.SafeShift.API.call('reports.php', 'PUT', {
+            id: reportId,
+            status: newStatus
+          });
           
-          await loadAllReports(selectedDepartment);
+          console.log('API Response:', result);
+          
+          if (result.success) {
+            alert('Report updated successfully!');
+            modal.classList.remove('active');
+            
+            // Reload reports to show updated status
+            await loadAllReports(selectedDepartment);
+          } else {
+            console.error('Update failed:', result.message);
+            alert(`Failed to update report: ${result.message}`);
+          }
           
         } catch (error) {
           console.error('Error updating report:', error);
-          alert('Failed to update report. Please try again.');
+          alert(`Error: ${error.message || 'Failed to update report'}`);
         }
       });
     }
   }
 
   window.openModal = async function(reportId) {
+    console.log('=== OPENING MODAL ===');
+    console.log('Report ID:', reportId);
+    
     const modal = document.getElementById('reportDetailsModal');
     const report = await window.SafeShift.Reports.getById(reportId);
+    
+    console.log('Fetched report:', report);
     
     if (!report) {
       alert('Report not found');
@@ -413,12 +428,9 @@
     
     const detailBoxes = modal.querySelectorAll('.detail-box .detail-value');
     if (detailBoxes[0]) detailBoxes[0].textContent = report.department;
-    
-    // FIXED: Show correct reporter name based on anonymous flag
     if (detailBoxes[2]) {
       detailBoxes[2].textContent = report.isAnonymous ? 'Anonymous' : report.submittedByName;
     }
-    
     if (detailBoxes[3]) detailBoxes[3].textContent = window.SafeShift.Utils.formatDate(report.submittedAt);
     
     const severityBadge = modal.querySelector('.detail-box .badge');
@@ -439,10 +451,16 @@
     if (descBox) descBox.textContent = report.description;
 
     const statusSelect = modal.querySelector('.form-select');
-    if (statusSelect) statusSelect.value = report.status;
+    if (statusSelect) {
+      statusSelect.value = report.status;
+      console.log('Current status set to:', report.status);
+    }
 
     modal.classList.add('active');
+    
+    // FIXED: Store the report ID properly
     modal.dataset.currentReportId = reportId;
+    console.log('Stored report ID in modal:', reportId);
   };
 
   function setupLogoutHandler() {
@@ -458,3 +476,5 @@
   }
 
 })();
+
+console.log('Fixed all_reports.js loaded - Status updates should work now');
