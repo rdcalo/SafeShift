@@ -3,7 +3,7 @@
 // ==========================================
 
 // API Base URL - Update this to match your XAMPP setup
-const API_BASE_URL = 'http://localhost/safeshift/backend/api';
+const API_BASE_URL = 'http://127.0.0.1/safeshift/backend/api';
 
 // ==========================================
 // 1. API UTILITIES
