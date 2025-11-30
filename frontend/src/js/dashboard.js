@@ -422,21 +422,11 @@
       const category = document.getElementById('inputCategory').value;
       const description = document.getElementById('inputDesc').value.trim();
 
-      if (!title) {
-        alert('Please enter a report title');
-        return false;
+      if (!title || !Category || !description ) {
+        alert('Please fill in all required fields');
+        return;
       }
-
-      if (category === 'Select type') {
-        alert('Please select a report type');
-        return false;
-      }
-
-      if (!description || description.length < 20) {
-        alert('Please provide a detailed description (minimum 20 characters)');
-        return false;
-      }
-
+      
       return true;
     }
 

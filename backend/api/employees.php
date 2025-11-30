@@ -42,7 +42,7 @@ try {
 }
 
 // ==========================================
-// GET - Fetch Employees
+// GET - Fetch Employees from 'users' table
 // ==========================================
 function handleGetEmployees($conn) {
     // Check if requesting single employee by ID
@@ -51,12 +51,20 @@ function handleGetEmployees($conn) {
         return;
     }
     
-    // Build query
+    // Build query - Using 'users' table instead of 'employees'
     $sql = "SELECT 
-                e.*,
-                (SELECT COUNT(*) FROM reports WHERE reporter_id = e.id) as total_reports,
-                (SELECT COUNT(*) FROM reports WHERE reporter_id = e.id AND status != 'Resolved') as active_reports
-            FROM users e
+                u.id,
+                u.full_name as name,
+                u.email,
+                u.role,
+                u.department,
+                u.status,
+                u.last_active,
+                u.created_at,
+                u.wellness_score,
+                (SELECT COUNT(*) FROM reports WHERE reporter_id = u.id) as total_reports,
+                (SELECT COUNT(*) FROM reports WHERE reporter_id = u.id AND status != 'Resolved') as active_reports
+            FROM users u
             WHERE 1=1";
     
     $params = [];
@@ -64,26 +72,26 @@ function handleGetEmployees($conn) {
     
     // Filter by department
     if (isset($_GET['department']) && $_GET['department'] !== 'All') {
-        $sql .= " AND e.department = ?";
+        $sql .= " AND u.department = ?";
         $params[] = $_GET['department'];
         $types .= "s";
     }
     
     // Filter by role
     if (isset($_GET['role'])) {
-        $sql .= " AND e.role = ?";
+        $sql .= " AND u.role = ?";
         $params[] = $_GET['role'];
         $types .= "s";
     }
     
     // Filter by status
     if (isset($_GET['status'])) {
-        $sql .= " AND e.status = ?";
+        $sql .= " AND u.status = ?";
         $params[] = $_GET['status'];
         $types .= "s";
     }
     
-    $sql .= " ORDER BY e.created_at DESC";
+    $sql .= " ORDER BY u.created_at DESC";
     
     $stmt = $conn->prepare($sql);
     
@@ -110,11 +118,19 @@ function handleGetEmployees($conn) {
 // ==========================================
 function getSingleEmployee($conn, $empId) {
     $sql = "SELECT 
-                e.*,
-                (SELECT COUNT(*) FROM reports WHERE reporter_id = e.id) as total_reports,
-                (SELECT COUNT(*) FROM reports WHERE reporter_id = e.id AND status != 'Resolved') as active_reports
-            FROM users e
-            WHERE e.id = ?";
+                u.id,
+                u.full_name as name,
+                u.email,
+                u.role,
+                u.department,
+                u.status,
+                u.last_active,
+                u.created_at,
+                u.wellness_score,
+                (SELECT COUNT(*) FROM reports WHERE reporter_id = u.id) as total_reports,
+                (SELECT COUNT(*) FROM reports WHERE reporter_id = u.id AND status != 'Resolved') as active_reports
+            FROM users u
+            WHERE u.id = ?";
     
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $empId);
@@ -170,20 +186,19 @@ function handleCreateEmployee($conn, $data) {
     $tempPassword = generateTempPassword();
     $hashedPassword = password_hash($tempPassword, PASSWORD_DEFAULT);
     
-    // Generate employee ID
-    $employeeId = 'EMP-' . strtoupper(substr(md5(uniqid()), 0, 6));
-    
-    // Insert new employee
+    // Insert new employee into 'users' table
     $sql = "INSERT INTO users (
-                full_name, email, password, role, department, created_at
-            ) VALUES (?, ?, ?, 'employee', ?, NOW())";
+                full_name, email, password, role, department, 
+                wellness_score, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, 75, 'Active', NOW())";
     
     $stmt = $conn->prepare($sql);
     $stmt->bind_param(
-        "ssss",
+        "sssss",
         $data['name'],
         $data['email'],
         $hashedPassword,
+        $data['role'],
         $data['department']
     );
     
@@ -205,7 +220,7 @@ function handleCreateEmployee($conn, $data) {
             'id' => $newEmployeeId,
             'name' => $data['name'],
             'email' => $data['email'],
-            'employeeId' => $employeeId,
+            'employeeId' => 'EMP-' . str_pad($newEmployeeId, 6, '0', STR_PAD_LEFT),
             'department' => $data['department'],
             'role' => $data['role']
         ],
@@ -377,10 +392,10 @@ function handleDeleteEmployee($conn, $data) {
 function formatEmployeeResponse($row) {
     return [
         'id' => $row['id'],
-        'employeeId' => $row['employee_id'] ?? 'EMP-' . str_pad($row['id'], 6, '0', STR_PAD_LEFT),
-        'name' => $row['full_name'],
+        'employeeId' => 'EMP-' . str_pad($row['id'], 6, '0', STR_PAD_LEFT),
+        'name' => $row['name'],
         'email' => $row['email'],
-        'role' => $row['role'],
+        'role' => ucfirst($row['role']), // Capitalize first letter
         'department' => $row['department'] ?? 'Unassigned',
         'status' => $row['status'] ?? 'Active',
         'lastActive' => $row['last_active'] ?? $row['created_at'],

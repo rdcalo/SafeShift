@@ -1,14 +1,13 @@
 // ==========================================
-// ALL REPORTS PAGE JAVASCRIPT
+// ALL REPORTS PAGE JAVASCRIPT - FIXED VERSION
 // ==========================================
-// Add to all_reports.html: <script src="app.js"></script>
-// Add to all_reports.html: <script src="all_reports.js"></script>
 
 (function() {
   let currentUser = null;
   let allReports = [];
   let filteredReports = [];
   let selectedDepartment = 'All';
+  let currentSearchQuery = '';
 
   document.addEventListener('DOMContentLoaded', async function() {
     currentUser = await window.SafeShift.Auth.init();
@@ -45,24 +44,60 @@
 
   async function loadAllReports(department = 'All') {
     try {
-      allReports = await window.SafeShift.Reports.getAll();
+      console.log('Loading reports for department:', department);
       
-      if (department === 'All') {
-        filteredReports = allReports;
-      } else {
-        filteredReports = allReports.filter(r => r.department === department);
+      // Build query parameters
+      let queryParams = '';
+      if (department !== 'All') {
+        queryParams = `?department=${encodeURIComponent(department)}`;
       }
-
-      renderReports(filteredReports);
-      updateDepartmentCounts();
+      
+      // Call API with department filter
+      const result = await window.SafeShift.API.call(`reports.php${queryParams}`);
+      
+      if (result.success) {
+        allReports = result.data;
+        console.log('Loaded reports:', allReports.length);
+        
+        // Apply search if there's an active query
+        if (currentSearchQuery) {
+          applySearch(currentSearchQuery);
+        } else {
+          filteredReports = allReports;
+          renderReports(filteredReports);
+        }
+        
+        updateDepartmentCounts();
+      } else {
+        console.error('Failed to load reports:', result.message);
+        allReports = [];
+        filteredReports = [];
+        renderReports([]);
+      }
     } catch (error) {
       console.error('Error loading reports:', error);
+      allReports = [];
+      filteredReports = [];
+      renderReports([]);
     }
   }
 
   function renderReports(reports) {
     const tbody = document.querySelector('#reportsTable tbody');
     if (!tbody) return;
+
+    if (reports.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-grey);">
+            <i class="fa-solid fa-folder-open" style="font-size: 3rem; margin-bottom: 10px; opacity: 0.3;"></i>
+            <p style="font-weight: 700;">No reports found</p>
+            <p style="font-size: 0.85rem; margin-top: 5px;">Try adjusting your filters or search query</p>
+          </td>
+        </tr>
+      `;
+      return;
+    }
 
     tbody.innerHTML = reports.map(report => `
       <tr class="report-row" data-id="${report.id}">
@@ -90,24 +125,40 @@
     });
   }
 
-  function updateDepartmentCounts() {
+  async function updateDepartmentCounts() {
     const filterButtons = document.querySelectorAll('.filter-btn');
+    
+    // Get all reports without filters for accurate counts
+    const allReportsResult = await window.SafeShift.API.call('reports.php');
+    const allReportsData = allReportsResult.success ? allReportsResult.data : [];
     
     filterButtons.forEach(btn => {
       const btnText = btn.textContent.trim();
       
       if (btnText === 'All') {
-        btn.textContent = 'All';
         return;
       }
 
-      // Extract department name (remove count badge)
-      const deptName = btnText.split('\n')[0].trim();
-      const count = allReports.filter(r => r.department === deptName).length;
+      // Extract department name (everything before the count badge)
+      const deptMatch = btnText.match(/^([A-Za-z\s]+)/);
+      if (!deptMatch) return;
+      
+      const deptName = deptMatch[1].trim();
+      const count = allReportsData.filter(r => r.department === deptName).length;
       
       const badge = btn.querySelector('.count-badge');
       if (badge) {
         badge.textContent = count;
+      } else {
+        // If badge doesn't exist, add it
+        const textNode = Array.from(btn.childNodes).find(node => node.nodeType === 3);
+        if (textNode) {
+          textNode.textContent = deptName + ' ';
+          const newBadge = document.createElement('span');
+          newBadge.className = 'count-badge';
+          newBadge.textContent = count;
+          btn.appendChild(newBadge);
+        }
       }
     });
   }
@@ -119,7 +170,9 @@
     const filterButtons = document.querySelectorAll('.filter-btn');
     
     filterButtons.forEach(btn => {
-      btn.addEventListener('click', function() {
+      btn.addEventListener('click', async function() {
+        console.log('Filter button clicked:', this.textContent);
+        
         // Remove active from all
         filterButtons.forEach(b => b.classList.remove('active'));
         
@@ -128,38 +181,93 @@
         
         // Get department name
         const btnText = this.textContent.trim();
-        const department = btnText === 'All' ? 'All' : btnText.split('\n')[0].trim();
+        let department;
+        
+        if (btnText === 'All') {
+          department = 'All';
+        } else {
+          // Extract department name (everything before the count badge)
+          const deptMatch = btnText.match(/^([A-Za-z\s]+)/);
+          department = deptMatch ? deptMatch[1].trim() : btnText;
+        }
+        
+        console.log('Selected department:', department);
         
         selectedDepartment = department;
-        loadAllReports(department);
+        await loadAllReports(department);
       });
     });
   }
 
   // ==========================================
-  // SEARCH
+  // SEARCH - FIXED VERSION
   // ==========================================
   function initializeSearch() {
     const searchInput = document.querySelector('.search-input');
     
     if (searchInput) {
+      // Debounce search to avoid too many requests
+      let searchTimeout;
+      
       searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase().trim();
+        clearTimeout(searchTimeout);
         
-        if (query === '') {
-          renderReports(filteredReports);
-          return;
-        }
+        searchTimeout = setTimeout(async () => {
+          const query = e.target.value.toLowerCase().trim();
+          currentSearchQuery = query;
+          
+          console.log('Searching for:', query);
+          
+          if (query === '') {
+            // If search is cleared, just show current filtered reports
+            filteredReports = allReports;
+            renderReports(filteredReports);
+            return;
+          }
 
-        const searchResults = filteredReports.filter(report => 
-          report.id.toLowerCase().includes(query) ||
-          report.type.toLowerCase().includes(query) ||
-          report.description.toLowerCase().includes(query) ||
-          report.department.toLowerCase().includes(query)
-        );
-
-        renderReports(searchResults);
+          // Apply search filter
+          applySearch(query);
+        }, 300); // Wait 300ms after user stops typing
       });
+    }
+  }
+
+  async function applySearch(query) {
+    if (!query) {
+      filteredReports = allReports;
+      renderReports(filteredReports);
+      return;
+    }
+
+    // Try API-based search first (more efficient for large datasets)
+    try {
+      let queryParams = `?search=${encodeURIComponent(query)}`;
+      
+      // Include department filter if active
+      if (selectedDepartment !== 'All') {
+        queryParams += `&department=${encodeURIComponent(selectedDepartment)}`;
+      }
+      
+      const result = await window.SafeShift.API.call(`reports.php${queryParams}`);
+      
+      if (result.success) {
+        filteredReports = result.data;
+        console.log('Search found:', filteredReports.length, 'reports');
+        renderReports(filteredReports);
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      
+      // Fallback to client-side search
+      filteredReports = allReports.filter(report => 
+        report.id.toLowerCase().includes(query) ||
+        report.type.toLowerCase().includes(query) ||
+        report.description.toLowerCase().includes(query) ||
+        report.department.toLowerCase().includes(query) ||
+        report.title?.toLowerCase().includes(query)
+      );
+      
+      renderReports(filteredReports);
     }
   }
 
@@ -305,7 +413,12 @@
     
     const detailBoxes = modal.querySelectorAll('.detail-box .detail-value');
     if (detailBoxes[0]) detailBoxes[0].textContent = report.department;
-    if (detailBoxes[2]) detailBoxes[2].textContent = report.isAnonymous ? 'Anonymous' : 'Named';
+    
+    // FIXED: Show correct reporter name based on anonymous flag
+    if (detailBoxes[2]) {
+      detailBoxes[2].textContent = report.isAnonymous ? 'Anonymous' : report.submittedByName;
+    }
+    
     if (detailBoxes[3]) detailBoxes[3].textContent = window.SafeShift.Utils.formatDate(report.submittedAt);
     
     const severityBadge = modal.querySelector('.detail-box .badge');
